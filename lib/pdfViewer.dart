@@ -1,16 +1,14 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:pdfx/pdfx.dart';
 
 class PdfChunkNavigator extends StatefulWidget {
-  final List<String> chunks;
-  final List<Map<String, Map<double, List<String>>>> compatibles;
-  final int initialIndex;
+  final String pdfPath;
+  final int targetPage;
 
   const PdfChunkNavigator({
     super.key,
-    required this.chunks,
-    required this.compatibles,
-    this.initialIndex = 0,
+    required this.pdfPath,
+    required this.targetPage,
   });
 
   @override
@@ -18,103 +16,40 @@ class PdfChunkNavigator extends StatefulWidget {
 }
 
 class _PdfChunkNavigatorState extends State<PdfChunkNavigator> {
-  late int currentIndex;
+  late PdfController controller;
 
   @override
   void initState() {
     super.initState();
-    currentIndex = widget.initialIndex;
-  }
 
-  void nextChunk() {
-    setState(() {
-      if (currentIndex < widget.chunks.length - 1) currentIndex++;
-    });
-  }
+    controller = PdfController(
+      document: PdfDocument.openFile(widget.pdfPath),
+      initialPage: widget.targetPage,
+    );
 
-  void previousChunk() {
-    setState(() {
-      if (currentIndex > 0) currentIndex--;
+    // ensure the correct scroll happens AFTER rendering
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        controller.jumpToPage(widget.targetPage);
+      });
     });
   }
 
   @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (widget.chunks.isEmpty) {
-      return const Center(child: Text("No chunks available"));
-    }
-
-    final chunk = widget.chunks[currentIndex];
-
-    List<String> compatibleWords = [];
-    for (var map in widget.compatibles) {
-      if (map.containsKey(chunk)) {
-        final inner = map[chunk]!;
-        final score = inner.keys.first;
-        compatibleWords = inner[score]!;
-        break;
-      }
-    }
-
     return Scaffold(
-      appBar: AppBar(title: Text("Chunk ${currentIndex + 1}/${widget.chunks.length}")),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Expanded(
-              child: Card(
-                elevation: 6,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SingleChildScrollView(
-                    child: RichText(
-                      text: TextSpan(
-                        children: chunk.split(' ').map((word) {
-                          final isHighlight = compatibleWords
-                              .map((w) => w.toLowerCase())
-                              .contains(word.toLowerCase());
-                          return TextSpan(
-                            text: '$word ',
-                            style: TextStyle(
-                              backgroundColor: isHighlight ? Colors.yellowAccent : Colors.transparent,
-                              fontSize: 18,
-                              color: Colors.black,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: previousChunk,
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text("Previous"),
-                ),
-                Text(
-                  "Chunk ${currentIndex + 1} / ${widget.chunks.length}",
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                ElevatedButton.icon(
-                  onPressed: nextChunk,
-                  icon: const Icon(Icons.arrow_forward),
-                  label: const Text("Next"),
-                ),
-              ],
-            ),
-          ],
-        ),
+      appBar: AppBar(
+        title: Text("PDF Viewer – Page ${widget.targetPage}"),
+      ),
+      body: PdfView(
+        controller: controller,
+        scrollDirection: Axis.vertical,
       ),
     );
   }
