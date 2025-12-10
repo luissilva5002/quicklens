@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.indigo,
       ),
-      home: PdfDropPage(),
+      home: HomePage(),
     );
   }
 }

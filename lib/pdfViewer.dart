@@ -62,7 +62,7 @@ class _PdfChunkNavigatorState extends State<PdfChunkNavigator> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("PDF Viewer – Page ${currentPage + 1}/$totalPages"),
+        title: Text("PDF Viewer – Page $currentPage/$totalPages"),
       ),
       body: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,

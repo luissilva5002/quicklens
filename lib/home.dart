@@ -7,14 +7,14 @@ import 'dart:convert';
 import 'pdfViewer.dart'; // updated PdfChunkNavigator
 import 'ExtarctorService.dart'; // now returns List<ParagraphChunk>
 
-class PdfDropPage extends StatefulWidget {
-  const PdfDropPage({super.key});
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<PdfDropPage> createState() => _PdfDropPageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _PdfDropPageState extends State<PdfDropPage> {
+class _HomePageState extends State<HomePage> {
   File? pdf1;
   List<ParagraphChunk> chunks = []; // updated type
   List<Map<String, Map<double, List<String>>>> compatibles = [];
@@ -122,10 +122,13 @@ class _PdfDropPageState extends State<PdfDropPage> {
         .replaceAll(RegExp(r'[^a-zA-Z0-9áàãâéêíóôõúç\s]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ');
 
-    return cleaned.split(" ").where((w) => w.trim().isNotEmpty).toList();
+    return cleaned.split(" ").where((w) =>
+    w
+        .trim()
+        .isNotEmpty).toList();
   }
 
-  final Set<String> stopwords = {/*
+  final Set<String> stopwords = { /*
     'a','o','e','de','da','do','que','em','para','com','um','uma','as','os',
     'no','na','nos','nas','por','se','é','dos','das','ao','à','às','ou'
     */
@@ -158,7 +161,10 @@ class _PdfDropPageState extends State<PdfDropPage> {
       List<String> chunkWords = filterMeaningful(chunkWordsRaw);
 
       // Compute common words
-      final commonWords = ocrWords.toSet().intersection(chunkWords.toSet()).toList();
+      final commonWords = ocrWords
+          .toSet()
+          .intersection(chunkWords.toSet())
+          .toList();
       double score = scoreChunk(ocrWordsRaw, chunkWordsRaw);
 
       // Debug prints
@@ -186,7 +192,8 @@ class _PdfDropPageState extends State<PdfDropPage> {
 
   List<String> filterMeaningful(List<String> words) {
     return words
-        .where((w) => w.length > 2 && !stopwords.contains(w) && !RegExp(r'^\d+$').hasMatch(w))
+        .where((w) =>
+    w.length > 2 && !stopwords.contains(w) && !RegExp(r'^\d+$').hasMatch(w))
         .toList();
   }
 
@@ -221,101 +228,86 @@ class _PdfDropPageState extends State<PdfDropPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PdfChunkNavigator(
-          pdfPath: pdf1!.path,
-          targetPage: chunk.page, // PdfController is 0-based
-        ),
+        builder: (_) =>
+            PdfChunkNavigator(
+              pdfPath: pdf1!.path,
+              targetPage: chunk.page, // PdfController is 0-based
+            ),
       ),
     );
   }
 
   // ----------------------------------------------------------
-  // UI
-  // ----------------------------------------------------------
+// UI
+// ----------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    const fmupYellow = Color(
+        0xFFD4A017);
+    final buttonStyle = ElevatedButton.styleFrom(
+      backgroundColor: fmupYellow,
+      foregroundColor: Colors.black,
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('PDF Compare Tool')),
+      appBar: AppBar(title: const Text('QuickLens')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: pickPdf,
-                    icon: const Icon(Icons.picture_as_pdf),
-                    label: Text(pdf1 == null ? 'Pick PDF' : 'PDF Selected'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: pickImage,
-                    icon: const Icon(Icons.image),
-                    label: const Text("Pick Image"),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-              ],
+            ElevatedButton.icon(
+              onPressed: pickPdf,
+              icon: const Icon(Icons.picture_as_pdf),
+              label: Text(pdf1 == null ? 'Pick PDF' : 'PDF Selected'),
+              style: buttonStyle,
             ),
-
-            const SizedBox(height: 20),
-
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: pickImage,
+              icon: const Icon(Icons.image),
+              label: const Text("Pick Image"),
+              style: buttonStyle,
+            ),
+            const SizedBox(height: 16),
             Expanded(
-              child: Row(
-                children: [
-                  // ----------------------------------------------------------
-                  // OCR TEXT PANEL
-                  // ----------------------------------------------------------
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black12,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: isLoading
-                          ? const Center(child: CircularProgressIndicator())
-                          : SingleChildScrollView(
-                        child: SelectableText(
-                          extractedText.isEmpty
-                              ? "OCR text will appear here"
-                              : extractedText,
-                          style: const TextStyle(fontSize: 16, height: 1.5),
-                        ),
-                      ),
-                    ),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : SingleChildScrollView(
+                  child: SelectableText(
+                    extractedText.isEmpty
+                        ? "OCR text will appear here"
+                        : extractedText,
+                    style: const TextStyle(fontSize: 16, height: 1.5),
                   ),
-
-                  const SizedBox(width: 16),
-
-                  // ----------------------------------------------------------
-                  // COMPARE BUTTON
-                  // ----------------------------------------------------------
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        final bestIndex = await compareChunks();
-                        showNavigatorAt(bestIndex);
-                      },
-                      icon: const Icon(Icons.compare_arrows),
-                      label: const Text("Compare & Show Best Chunk"),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.green,
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final bestIndex = await compareChunks();
+                showNavigatorAt(bestIndex);
+              },
+              icon: const Icon(Icons.compare_arrows),
+              label: const Text("Compare & Show Best Chunk"),
+              style: buttonStyle.copyWith(
+                padding: const WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(vertical: 20),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
