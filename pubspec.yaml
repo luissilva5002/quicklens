@@ -40,6 +40,7 @@ dependencies:
   syncfusion_flutter_pdf: ^31.2.15
   desktop_drop: ^0.7.0
   syncfusion_flutter_pdfviewer: ^31.2.15
+  tflite_flutter: ^0.12.1
   pdfx: ^2.3.0
   http: ^1.6.0
 
