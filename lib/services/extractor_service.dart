@@ -1,17 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data'; // Import Uint8List
+import 'dart:typed_data';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
-/// Represents one paragraph and the page it belongs to.
-class ParagraphChunk {
-  final int page; // This is the 1-based page number
-  final String text;
-
-  ParagraphChunk({
-    required this.page,
-    required this.text,
-  });
-}
+// FIX: Import the centralized model definition
+import '../models/paragraph_chunk.dart';
 
 class PdfTextExtractorService {
   /// Extracts paragraphs from the PDF at [path], preserving the page number for each paragraph.
