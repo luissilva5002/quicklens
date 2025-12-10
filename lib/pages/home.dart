@@ -246,7 +246,7 @@ class _HomePageState extends State<HomePage> {
               icon: const Icon(Icons.compare_arrows),
               label: const Text("Compare & Show Top Chunks"),
               style: buttonStyle.copyWith(
-                padding: const MaterialStatePropertyAll(EdgeInsets.symmetric(vertical: 20)),
+                padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 20)),
               ),
             ),
           ],

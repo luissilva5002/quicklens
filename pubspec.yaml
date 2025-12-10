@@ -41,6 +41,7 @@ dependencies:
   desktop_drop: ^0.7.0
   syncfusion_flutter_pdfviewer: ^31.2.15
   pdfx: ^2.3.0
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

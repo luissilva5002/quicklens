@@ -41,26 +41,26 @@ class ComparisonService {
     final ocrMap = wordCounts(ocrMeaningful);
     final chunkMap = wordCounts(chunkMeaningful);
 
-    int M_Match = 0;
+    int mMatch = 0;
     ocrMap.forEach((word, count) {
       if (chunkMap.containsKey(word)) {
         // Only count the minimum frequency to avoid overcounting based on chunk length
-        M_Match += (count < chunkMap[word]! ? count : chunkMap[word]!);
+        mMatch += (count < chunkMap[word]! ? count : chunkMap[word]!);
       }
     });
 
-    int M_OCR = ocrMap.values.fold(0, (sum, count) => sum + count);
-    int M_Chunk = chunkMap.values.fold(0, (sum, count) => sum + count);
+    int mOcr = ocrMap.values.fold(0, (sum, count) => sum + count);
+    int mChunk = chunkMap.values.fold(0, (sum, count) => sum + count);
 
-    if (M_OCR == 0 || M_Chunk == 0) {
+    if (mOcr == 0 || mChunk == 0) {
       // log('SCORE | Index: $chunkIndex (Page $page) | Score: 0.0');
       return 0.0;
     }
 
     // Recall (R): How many words in the search text were found in the chunk
-    final double R = M_Match / M_OCR;
+    final double R = mMatch / mOcr;
     // Precision (P): How many words in the chunk were also in the search text
-    final double P = M_Match / M_Chunk;
+    final double P = mMatch / mChunk;
 
     if (P + R == 0) {
       // log('SCORE | Index: $chunkIndex (Page $page) | Score: 0.0');
@@ -68,11 +68,11 @@ class ComparisonService {
     }
 
     // F1 Score: Harmonic mean of Precision and Recall
-    final double F1_Score = 2 * (P * R) / (P + R);
+    final double f1Score = 2 * (P * R) / (P + R);
 
-    log('SCORE | Index: $chunkIndex (Page $page) | Score: ${F1_Score.toStringAsFixed(4)}');
+    log('SCORE | Index: $chunkIndex (Page $page) | Score: ${f1Score.toStringAsFixed(4)}');
 
-    return F1_Score;
+    return f1Score;
   }
 
   // Returns a ranked list of ScoredChunk objects
