@@ -9,7 +9,7 @@ import 'package:cross_file/cross_file.dart';
 
 import '../keys.dart';
 import '../services/extractor_service.dart';
-import '../services/question_extractor.dart'; // Ensure this matches the file above
+import '../services/question_extractor.dart';
 
 // Local Imports
 import '../models/paragraph_chunk.dart';
@@ -82,7 +82,17 @@ class _HomePageState extends State<HomePage> {
 
   /// Core helper to load PDF data from any source (Picker or Drag)
   Future<void> _loadPdfData(Uint8List? bytes, String? path) async {
+    // Safety check: if widget is disposed, stop immediately
+    if (!mounted) return;
     if (bytes == null && path == null) return;
+
+    // Web specific check: if on web, we MUST have bytes
+    if (kIsWeb && bytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: Could not load file content. Try Drag & Drop instead.')),
+      );
+      return;
+    }
 
     setState(() {
       if (kIsWeb) {
@@ -95,19 +105,23 @@ class _HomePageState extends State<HomePage> {
           pdfBytes = bytes;
         }
       }
-      // Reset page range when loading new file
+      // Reset page range and data when loading new file
       _startPageCtrl.clear();
       _endPageCtrl.clear();
+      chunks.clear();
+      jsonQuestions.clear();
+      _processingProgress = 0.0;
     });
-
-    // Automatically start processing
-    await processPdf();
   }
 
   Future<void> pickPdf() async {
-    final result = await FileService.pickPdfFile();
-    if (result != null) {
-      await _loadPdfData(result.bytes, result.path);
+    try {
+      final result = await FileService.pickPdfFile();
+      if (result != null) {
+        await _loadPdfData(result.bytes, result.path);
+      }
+    } catch (e) {
+      log("Error picking PDF: $e");
     }
   }
 
@@ -129,6 +143,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> processPdf() async {
+    if (!mounted) return;
     if ((pdfFile == null && !kIsWeb) || (kIsWeb && pdfBytes == null)) return;
 
     setState(() {
@@ -139,8 +154,14 @@ class _HomePageState extends State<HomePage> {
     });
 
     // Parse Page Range Inputs
-    int? startPage = int.tryParse(_startPageCtrl.text);
-    int? endPage = int.tryParse(_endPageCtrl.text);
+    // Logic: Only parse if inferJson is TRUE. Otherwise, send null.
+    int? startPage;
+    int? endPage;
+
+    if (inferJson) {
+      startPage = int.tryParse(_startPageCtrl.text);
+      endPage = int.tryParse(_endPageCtrl.text);
+    }
 
     try {
       if (inferJson) {
@@ -149,47 +170,51 @@ class _HomePageState extends State<HomePage> {
           jsonQuestions = await PdfQuestionExtractor.extractQuestionsFromBytes(
             pdfBytes!,
             "web_doc.pdf",
-            onProgress: (p) => setState(() => _processingProgress = p),
+            onProgress: (p) { if(mounted) setState(() => _processingProgress = p); },
             startPage: startPage,
             endPage: endPage,
           );
         } else {
           jsonQuestions = await PdfQuestionExtractor.extractQuestionsFromFile(
             pdfFile!.path,
-            onProgress: (p) => setState(() => _processingProgress = p),
+            onProgress: (p) { if(mounted) setState(() => _processingProgress = p); },
             startPage: startPage,
             endPage: endPage,
           );
         }
       } else {
-        // --- STANDARD CHUNK MODE ---
-        // Note: PdfTextExtractorService would need similar updates to support range
-        // For now, we only applied range logic to the Question Extractor as requested.
+        // --- STANDARD CHUNK MODE (Ignores Page Range) ---
         if (kIsWeb) {
           final extracted = await PdfTextExtractorService.extractParagraphsFromBytes(
             pdfBytes!,
-            onProgress: (p) => setState(() => _processingProgress = p),
+            onProgress: (p) { if(mounted) setState(() => _processingProgress = p); },
           );
           chunks.addAll(extracted.cast<ParagraphChunk>());
         } else {
           final extracted = await PdfTextExtractorService.extractParagraphsFromFile(
             pdfFile!.path,
-            onProgress: (p) => setState(() => _processingProgress = p),
+            onProgress: (p) { if(mounted) setState(() => _processingProgress = p); },
           );
           chunks.addAll(extracted.cast<ParagraphChunk>());
         }
       }
     } catch (e) {
       log('ERROR: PDF processing failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Processing failed: $e')));
+      }
     }
 
-    setState(() => loading = false);
+    if (mounted) {
+      setState(() => loading = false);
+    }
   }
 
   // ------------------ IMAGE / OCR LOGIC ------------------
 
   Future<void> _processOcrRequest(Uint8List? bytes, String path) async {
     if (bytes == null && kIsWeb) return;
+    if (!mounted) return;
 
     setState(() {
       isLoading = true;
@@ -201,17 +226,23 @@ class _HomePageState extends State<HomePage> {
           ? await _ocrService.sendToOcrSpaceWeb(bytes!, path)
           : await _ocrService.sendToOcrSpace(File(path));
 
-      setState(() {
-        extractedText = text;
-        _textController.text = extractedText;
-      });
+      if (mounted) {
+        setState(() {
+          extractedText = text;
+          _textController.text = extractedText;
+        });
+      }
     } catch (e) {
-      setState(() {
-        extractedText = "OCR failed: $e";
-        _textController.text = extractedText;
-      });
+      if (mounted) {
+        setState(() {
+          extractedText = "OCR failed: $e";
+          _textController.text = extractedText;
+        });
+      }
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -249,7 +280,7 @@ class _HomePageState extends State<HomePage> {
 
     if (inferJson) {
       if (jsonQuestions.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No questions extracted. Try picking the PDF again.')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No questions extracted. Please scan the PDF first.')));
         return;
       }
 
@@ -271,7 +302,7 @@ class _HomePageState extends State<HomePage> {
 
     } else {
       if (chunks.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No chunks extracted. Try picking the PDF again.')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No chunks extracted. Please scan the PDF first.')));
         return;
       }
 
@@ -304,11 +335,59 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // ------------------ UI HELPERS ------------------
+
+  InputDecoration _inlineInputDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13),
+      border: InputBorder.none,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+    );
+  }
+
   // ------------------ UI BUILD ------------------
   @override
   Widget build(BuildContext context) {
     bool isReady = extractedText.isNotEmpty && (chunks.isNotEmpty || jsonQuestions.isNotEmpty);
     bool hasPdf = (pdfFile != null || pdfBytes != null);
+
+    // Determine status text
+    String statusTitle = hasPdf ? "PDF Loaded" : "No PDF Selected";
+    Widget statusSubtitle;
+    if (loading) {
+      statusSubtitle = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: _processingProgress,
+              minHeight: 4,
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(kFmupYellow),
+            ),
+          ),
+        ],
+      );
+    } else if (hasPdf) {
+      bool hasData = chunks.isNotEmpty || jsonQuestions.isNotEmpty;
+      statusSubtitle = Text(
+        hasData
+            ? (inferJson ? "Ready (${jsonQuestions.length} pairs extracted)" : "Ready (${chunks.length} chunks extracted)")
+            : "Select pages and click Extract",
+        style: TextStyle(color: kSubText, fontSize: 13, height: 1.5),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    } else {
+      statusSubtitle = Text(
+        "Drag & Drop or Tap Icon",
+        style: TextStyle(color: kSubText, fontSize: 13, height: 1.5),
+      );
+    }
 
     return Scaffold(
       backgroundColor: kBackground,
@@ -322,37 +401,6 @@ class _HomePageState extends State<HomePage> {
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(color: Colors.grey[200], height: 1),
-        ),
-      ),
-
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: Colors.black12)),
-        ),
-        child: SafeArea(
-          child: ElevatedButton(
-            onPressed: handleComparison,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kFmupYellow,
-              foregroundColor: kDarkText,
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              elevation: isReady ? 2 : 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(inferJson ? Icons.saved_search : Icons.compare_arrows, size: 28),
-                const SizedBox(width: 12),
-                Text(
-                  inferJson ? "FIND ANSWER IN PDF" : "COMPARE & NAVIGATE",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
 
@@ -382,114 +430,115 @@ class _HomePageState extends State<HomePage> {
                 ),
                 child: Column(
                   children: [
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      leading: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: hasPdf ? kFmupYellow : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(Icons.picture_as_pdf,
-                            color: hasPdf ? Colors.black : Colors.grey[400],
-                            size: 28
-                        ),
-                      ),
-                      title: Text(
-                        hasPdf ? "PDF Loaded Successfully" : "No PDF Selected",
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: kDarkText),
-                      ),
-                      // --- PROGRESS BAR AREA ---
-                      subtitle: loading
-                          ? Padding(
-                        padding: const EdgeInsets.only(top: 12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: LinearProgressIndicator(
-                                value: _processingProgress,
-                                minHeight: 6,
-                                backgroundColor: Colors.grey[200],
-                                valueColor: AlwaysStoppedAnimation<Color>(kFmupYellow),
+                    // --- HEADER ROW ---
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      child: Row(
+                        children: [
+                          // 1. SELECTOR ICON (Clickable with fixed InkWell)
+                          Material(
+                            color: hasPdf ? kFmupYellow : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              onTap: pickPdf,
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                child: Icon(
+                                    Icons.picture_as_pdf,
+                                    color: hasPdf ? Colors.black : Colors.grey[400],
+                                    size: 28
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "Processing... ${(_processingProgress * 100).toInt()}%",
-                              style: TextStyle(fontSize: 12, color: kSubText),
+                          ),
+
+                          const SizedBox(width: 16),
+
+                          // 2. STATUS TEXT
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  statusTitle,
+                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: kDarkText),
+                                ),
+                                statusSubtitle,
+                              ],
                             ),
-                          ],
-                        ),
-                      )
-                          : Text(
-                        hasPdf
-                            ? (inferJson ? "Mode: Intelligent JSON (${jsonQuestions.length} pairs)" : "Mode: Standard (${chunks.length} chunks)")
-                            : "Drag & Drop PDF here or click Select",
-                        style: TextStyle(color: kSubText, height: 1.5),
-                      ),
-                      trailing: TextButton(
-                        onPressed: pickPdf,
-                        style: TextButton.styleFrom(
-                            foregroundColor: kDarkText,
-                            backgroundColor: Colors.grey[100],
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
-                        ),
-                        child: const Text("SELECT", style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+
+                          // 3. INPUTS & EXTRACT BUTTON (Unified Height)
+                          if (hasPdf) ...[
+                            const SizedBox(width: 8),
+                            IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // COMBINED INPUT SHAPE
+                                  Container(
+                                    width: 130,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.grey[300]!),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _startPageCtrl,
+                                            keyboardType: TextInputType.number,
+                                            textAlign: TextAlign.center,
+                                            decoration: _inlineInputDecoration("From"),
+                                          ),
+                                        ),
+                                        Container(
+                                          width: 1,
+                                          margin: const EdgeInsets.symmetric(vertical: 8),
+                                          color: Colors.grey[300],
+                                        ),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _endPageCtrl,
+                                            keyboardType: TextInputType.number,
+                                            textAlign: TextAlign.center,
+                                            decoration: _inlineInputDecoration("To"),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  const SizedBox(width: 8),
+
+                                  // EXTRACT BUTTON
+                                  Material(
+                                    color: kFmupYellow,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: InkWell(
+                                      onTap: loading ? null : processPdf,
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                                        alignment: Alignment.center,
+                                        child: loading
+                                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+                                            : const Text("EXTRACT", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Colors.black)),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            const SizedBox(width: 8),
+                            Text("Tap Icon", style: TextStyle(color: Colors.grey[400], fontSize: 12, fontWeight: FontWeight.bold)),
+                          ]
+                        ],
                       ),
                     ),
-
-                    if (hasPdf) ...[
-                      const Divider(height: 1),
-
-                      // --- PAGE RANGE INPUTS ---
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        child: Row(
-                          children: [
-                            Text("Extract Pages:", style: TextStyle(color: kSubText, fontWeight: FontWeight.bold)),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: TextField(
-                                  controller: _startPageCtrl,
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    labelText: 'Start',
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: TextField(
-                                  controller: _endPageCtrl,
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    labelText: 'End',
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            IconButton(
-                              icon: const Icon(Icons.refresh),
-                              color: kDarkText,
-                              tooltip: "Re-scan specific pages",
-                              onPressed: loading ? null : processPdf,
-                            )
-                          ],
-                        ),
-                      ),
-                    ],
 
                     const Divider(height: 1, thickness: 1),
 
@@ -507,9 +556,6 @@ class _HomePageState extends State<HomePage> {
                         value: inferJson,
                         onChanged: (val) {
                           setState(() => inferJson = val);
-                          if (hasPdf) {
-                            processPdf();
-                          }
                         },
                       ),
                     ),
@@ -616,6 +662,32 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 80),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: ElevatedButton(
+            onPressed: handleComparison,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kFmupYellow,
+              foregroundColor: kDarkText,
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              elevation: isReady ? 2 : 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(inferJson ? Icons.saved_search : Icons.compare_arrows, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  inferJson ? "FIND ANSWER IN PDF" : "COMPARE & NAVIGATE",
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
