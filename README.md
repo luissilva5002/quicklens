@@ -8,7 +8,7 @@
 
 It uses chunk-based processing and intelligent navigation to let you inspect documents page-by-page, view compatible sections, and interact with PDF content smoothly — even on large files.
 
-🔗 **Access QuickLens here:** 👉 [https://luissilva5002.github.io/quicklens/](https://luissilva5002.github.io/quicklens/)
+🔗 **Access QuickLens here:** 👉 [https://luissilva5002.github.io/QuickLens/](https://luissilva5002.github.io/QuickLens/)
 
 ---
 
