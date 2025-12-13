@@ -9,28 +9,50 @@ import 'package:path/path.dart' as p;
 
 class PdfQuestionExtractor {
 
-  // Changed to Future
-  static Future<List<Map<String, dynamic>>> extractQuestionsFromFile(String path, {Function(double)? onProgress}) async {
-    log('DEBUG: Extracting questions from file: $path');
+  // --- 1. ENTRY POINTS ---
+
+  /// Extract questions from a file path with optional page range (1-based index)
+  static Future<List<Map<String, dynamic>>> extractQuestionsFromFile(
+      String path, {
+        Function(double)? onProgress,
+        int? startPage,
+        int? endPage,
+      }) async {
+    log('DEBUG: Extracting questions from file: $path (Pages: $startPage - $endPage)');
     final bytes = await File(path).readAsBytes();
     final fileName = p.basename(path);
-    return _extractQuestionsAndPrint(bytes, fileName, onProgress: onProgress);
+    return _extractQuestionsAndPrint(bytes, fileName,
+        onProgress: onProgress, startPage: startPage, endPage: endPage);
   }
 
-  // Changed to Future
+  /// Extract questions from bytes with optional page range (1-based index)
   static Future<List<Map<String, dynamic>>> extractQuestionsFromBytes(
-      Uint8List bytes, String fileName, {Function(double)? onProgress}) async {
-    return _extractQuestionsAndPrint(bytes, fileName, onProgress: onProgress);
+      Uint8List bytes,
+      String fileName, {
+        Function(double)? onProgress,
+        int? startPage,
+        int? endPage,
+      }) async {
+    return _extractQuestionsAndPrint(bytes, fileName,
+        onProgress: onProgress, startPage: startPage, endPage: endPage);
   }
+
+  // --- 2. ORCHESTRATION ---
 
   static Future<List<Map<String, dynamic>>> _extractQuestionsAndPrint(
-      Uint8List bytes, String fileName, {Function(double)? onProgress}) async {
+      Uint8List bytes,
+      String fileName, {
+        Function(double)? onProgress,
+        int? startPage,
+        int? endPage,
+      }) async {
 
-    // Await internal
-    final results = await _extractQuestionsFromBytesInternal(bytes, fileName, onProgress: onProgress);
+    final results = await _extractQuestionsFromBytesInternal(
+        bytes, fileName,
+        onProgress: onProgress, startPage: startPage, endPage: endPage);
 
+    // Debug Printing
     final String jsonOutput = const JsonEncoder.withIndent('  ').convert(results);
-
     log("---------------- EXTRACTED JSON QUESTIONS START ----------------");
     final pattern = RegExp('.{1,800}');
     pattern.allMatches(jsonOutput).forEach((match) => print(match.group(0)));
@@ -40,29 +62,47 @@ class PdfQuestionExtractor {
   }
 
   static Future<List<Map<String, dynamic>>> _extractQuestionsFromBytesInternal(
-      Uint8List bytes, String fileName, {Function(double)? onProgress}) async {
+      Uint8List bytes,
+      String fileName, {
+        Function(double)? onProgress,
+        int? startPage,
+        int? endPage,
+      }) async {
 
     final PdfDocument document = PdfDocument(inputBytes: bytes);
     List<_StyledLine> allLines = [];
     int totalPages = document.pages.count;
 
-    // --- STEP 1: Extract Lines & Detect Styles ---
-    for (int i = 0; i < totalPages; i++) {
+    // --- RANGE LOGIC ---
+    // User inputs 1-based index (e.g., page 1 to 5). We convert to 0-based index (0 to 4).
+    // If null, default to full document.
+    int startIdx = (startPage != null && startPage > 0) ? startPage - 1 : 0;
+    int endIdx = (endPage != null && endPage > 0) ? endPage - 1 : totalPages - 1;
 
-      // --- CRITICAL FIX: YIELD TO UI THREAD ---
-      await Future.delayed(Duration.zero);
+    // Safety clamps to ensure we don't crash on invalid inputs
+    if (startIdx >= totalPages) startIdx = totalPages - 1;
+    if (endIdx >= totalPages) endIdx = totalPages - 1;
+    if (endIdx < startIdx) endIdx = startIdx;
 
-      if (onProgress != null) {
-        onProgress((i + 1) / totalPages);
-      }
+    int totalPagesToProcess = (endIdx - startIdx) + 1;
+    int processedCount = 0;
 
-      final page = document.pages[i];
+    log("DEBUG: Processing pages ${startIdx + 1} to ${endIdx + 1}");
+
+    // STEP 1: Extract Lines (Loop restricted to range)
+    for (int i = startIdx; i <= endIdx; i++) {
+      await Future.delayed(Duration.zero); // Unblock UI
+
+      processedCount++;
+      if (onProgress != null) onProgress(processedCount / totalPagesToProcess);
+
+      // Syncfusion extraction specific to this page index
       List<TextLine> textLines = PdfTextExtractor(document)
           .extractTextLines(startPageIndex: i, endPageIndex: i);
 
       for (var line in textLines) {
         bool isMarkedAnswer = false;
-        String text = line.text;
+        // Check for bold styling
         for (var word in line.wordCollection) {
           if (word.fontStyle.contains(PdfFontStyle.bold)) {
             isMarkedAnswer = true;
@@ -70,7 +110,7 @@ class PdfQuestionExtractor {
           }
         }
         allLines.add(_StyledLine(
-          text: text,
+          text: line.text.trim(), // Trim immediately
           isAnswerMarked: isMarkedAnswer,
           pageIndex: i + 1,
           bounds: line.bounds,
@@ -79,10 +119,10 @@ class PdfQuestionExtractor {
     }
     document.dispose();
 
-    // --- STEP 2: Group into Blocks ---
+    // STEP 2: Group Blocks
     List<List<_StyledLine>> blocks = _splitIntoBlocks(allLines);
 
-    // --- STEP 3: Parse Blocks ---
+    // STEP 3: Parse Logic
     List<Map<String, dynamic>> results = [];
 
     for (var block in blocks) {
@@ -103,6 +143,8 @@ class PdfQuestionExtractor {
     return results;
   }
 
+  // --- 3. BLOCK SPLITTER (Existing logic) ---
+
   static List<List<_StyledLine>> _splitIntoBlocks(List<_StyledLine> lines) {
     List<List<_StyledLine>> blocks = [];
     List<_StyledLine> currentBlock = [];
@@ -116,6 +158,8 @@ class PdfQuestionExtractor {
 
       bool newPage = curr.pageIndex != prev.pageIndex;
       double gap = curr.bounds.top - (prev.bounds.top + prev.bounds.height);
+
+      // Adjusted gap logic: 1.5x height is usually a good paragraph break
       bool bigGap = gap > (prev.bounds.height * 1.5);
 
       if (newPage || bigGap) {
@@ -128,40 +172,79 @@ class PdfQuestionExtractor {
     return blocks;
   }
 
-  // --- Parsing Helpers ---
+  // --- 4. PARSING HELPERS ---
 
   static final RegExp _numberingRegex = RegExp(r"^\s*\d+(?:\.\d+)*\.\s*");
-  static final RegExp _tfItemPattern = RegExp(r"^\d+(?:\.\d+)*\.\s*(.+?)\s+(V|F)$");
+  static final RegExp _tfStartPattern = RegExp(r"^\d+(?:\.\d+)*\.");
+  static final RegExp _tfEndPattern = RegExp(r"(?:[\-\–]\s*)?(V|F)$");
   static final RegExp _optionPattern = RegExp(r"^[A-Ea-e][\.\)]\s*(.+)$");
 
   static String _stripNumbering(String text) {
     return text.replaceFirst(_numberingRegex, "").trim();
   }
 
+  // --- Multi-line True/False Parser ---
   static Map<String, dynamic>? _parseTrueFalseGroup(
       List<_StyledLine> block, String fileName) {
 
     List<String> questionHeader = [];
     List<Map<String, dynamic>> items = [];
+
+    String? pendingStatement;
+    String pendingFullText = "";
+
     bool foundFirstItem = false;
 
     for (var line in block) {
-      final match = _tfItemPattern.firstMatch(line.text);
+      String text = line.text;
 
-      if (match != null) {
-        foundFirstItem = true;
-        String statement = match.group(1)!;
-        String vf = match.group(2)!;
+      // SCENARIO 1: We are already building a multi-line item
+      if (pendingStatement != null) {
+        pendingStatement = pendingStatement! + " " + text;
+        pendingFullText += " " + text;
 
-        items.add({
-          "statement": statement.trim(),
-          "answer": vf == "V",
-          "original_text": line.text
-        });
-      } else {
-        if (!foundFirstItem) {
-          questionHeader.add(line.text);
+        final endMatch = _tfEndPattern.firstMatch(text);
+        if (endMatch != null) {
+          String vf = endMatch.group(1)!;
+
+          String cleanStatement = pendingStatement!.substring(0, pendingStatement!.length - endMatch.group(0)!.length).trim();
+          cleanStatement = _stripNumbering(cleanStatement);
+
+          items.add({
+            "statement": cleanStatement,
+            "answer": vf == "V",
+            "original_text": pendingFullText
+          });
+          pendingStatement = null;
+          pendingFullText = "";
         }
+        continue;
+      }
+
+      // SCENARIO 2: Check if this is a NEW item starting with a number
+      if (_tfStartPattern.hasMatch(text)) {
+        foundFirstItem = true;
+
+        final endMatch = _tfEndPattern.firstMatch(text);
+
+        if (endMatch != null) {
+          String vf = endMatch.group(1)!;
+          String cleanStatement = text.substring(0, text.length - endMatch.group(0)!.length).trim();
+          cleanStatement = _stripNumbering(cleanStatement);
+
+          items.add({
+            "statement": cleanStatement,
+            "answer": vf == "V",
+            "original_text": text
+          });
+        } else {
+          pendingStatement = text;
+          pendingFullText = text;
+        }
+      }
+      // SCENARIO 3: It's header text
+      else if (!foundFirstItem) {
+        questionHeader.add(text);
       }
     }
 
@@ -180,6 +263,7 @@ class PdfQuestionExtractor {
     };
   }
 
+  // --- Multiple Choice Parser ---
   static Map<String, dynamic>? _parseMultipleChoice(
       List<_StyledLine> block, String fileName) {
     List<String> questionLines = [];
@@ -237,6 +321,8 @@ class PdfQuestionExtractor {
     };
   }
 }
+
+// --- Data Classes ---
 
 class _StyledLine {
   final String text;

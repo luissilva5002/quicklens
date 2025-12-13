@@ -9,7 +9,7 @@ import 'package:cross_file/cross_file.dart';
 
 import '../keys.dart';
 import '../services/extractor_service.dart';
-import '../services/question_extractor.dart';
+import '../services/question_extractor.dart'; // Ensure this matches the file above
 
 // Local Imports
 import '../models/paragraph_chunk.dart';
@@ -31,6 +31,10 @@ class _HomePageState extends State<HomePage> {
   // --- STATE VARIABLES ---
   File? pdfFile;
   Uint8List? pdfBytes;
+
+  // Page Range Controllers
+  final TextEditingController _startPageCtrl = TextEditingController();
+  final TextEditingController _endPageCtrl = TextEditingController();
 
   // Data State
   List<ParagraphChunk> chunks = [];
@@ -69,6 +73,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _textController.dispose();
+    _startPageCtrl.dispose();
+    _endPageCtrl.dispose();
     super.dispose();
   }
 
@@ -89,6 +95,9 @@ class _HomePageState extends State<HomePage> {
           pdfBytes = bytes;
         }
       }
+      // Reset page range when loading new file
+      _startPageCtrl.clear();
+      _endPageCtrl.clear();
     });
 
     // Automatically start processing
@@ -129,34 +138,40 @@ class _HomePageState extends State<HomePage> {
       jsonQuestions.clear();
     });
 
+    // Parse Page Range Inputs
+    int? startPage = int.tryParse(_startPageCtrl.text);
+    int? endPage = int.tryParse(_endPageCtrl.text);
+
     try {
       if (inferJson) {
         // --- JSON MODE ---
         if (kIsWeb) {
-          // ADDED AWAIT
           jsonQuestions = await PdfQuestionExtractor.extractQuestionsFromBytes(
             pdfBytes!,
             "web_doc.pdf",
             onProgress: (p) => setState(() => _processingProgress = p),
+            startPage: startPage,
+            endPage: endPage,
           );
         } else {
-          // ADDED AWAIT
           jsonQuestions = await PdfQuestionExtractor.extractQuestionsFromFile(
             pdfFile!.path,
             onProgress: (p) => setState(() => _processingProgress = p),
+            startPage: startPage,
+            endPage: endPage,
           );
         }
       } else {
         // --- STANDARD CHUNK MODE ---
+        // Note: PdfTextExtractorService would need similar updates to support range
+        // For now, we only applied range logic to the Question Extractor as requested.
         if (kIsWeb) {
-          // ADDED AWAIT
           final extracted = await PdfTextExtractorService.extractParagraphsFromBytes(
             pdfBytes!,
             onProgress: (p) => setState(() => _processingProgress = p),
           );
           chunks.addAll(extracted.cast<ParagraphChunk>());
         } else {
-          // ADDED AWAIT
           final extracted = await PdfTextExtractorService.extractParagraphsFromFile(
             pdfFile!.path,
             onProgress: (p) => setState(() => _processingProgress = p),
@@ -293,6 +308,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     bool isReady = extractedText.isNotEmpty && (chunks.isNotEmpty || jsonQuestions.isNotEmpty);
+    bool hasPdf = (pdfFile != null || pdfBytes != null);
 
     return Scaffold(
       backgroundColor: kBackground,
@@ -371,16 +387,16 @@ class _HomePageState extends State<HomePage> {
                       leading: Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: (pdfFile != null || pdfBytes != null) ? kFmupYellow : Colors.grey[100],
+                          color: hasPdf ? kFmupYellow : Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(Icons.picture_as_pdf,
-                            color: (pdfFile != null || pdfBytes != null) ? Colors.black : Colors.grey[400],
+                            color: hasPdf ? Colors.black : Colors.grey[400],
                             size: 28
                         ),
                       ),
                       title: Text(
-                        (pdfFile != null || pdfBytes != null) ? "PDF Loaded Successfully" : "No PDF Selected",
+                        hasPdf ? "PDF Loaded Successfully" : "No PDF Selected",
                         style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: kDarkText),
                       ),
                       // --- PROGRESS BAR AREA ---
@@ -408,7 +424,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       )
                           : Text(
-                        (pdfFile != null || pdfBytes != null)
+                        hasPdf
                             ? (inferJson ? "Mode: Intelligent JSON (${jsonQuestions.length} pairs)" : "Mode: Standard (${chunks.length} chunks)")
                             : "Drag & Drop PDF here or click Select",
                         style: TextStyle(color: kSubText, height: 1.5),
@@ -424,12 +440,63 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
 
+                    if (hasPdf) ...[
+                      const Divider(height: 1),
+
+                      // --- PAGE RANGE INPUTS ---
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        child: Row(
+                          children: [
+                            Text("Extract Pages:", style: TextStyle(color: kSubText, fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: SizedBox(
+                                height: 40,
+                                child: TextField(
+                                  controller: _startPageCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Start',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SizedBox(
+                                height: 40,
+                                child: TextField(
+                                  controller: _endPageCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'End',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            IconButton(
+                              icon: const Icon(Icons.refresh),
+                              color: kDarkText,
+                              tooltip: "Re-scan specific pages",
+                              onPressed: loading ? null : processPdf,
+                            )
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const Divider(height: 1, thickness: 1),
 
                     Container(
                       color: Colors.transparent,
                       child: SwitchListTile(
-                        activeColor: Colors.black,
+                        activeThumbColor: Colors.black,
                         activeTrackColor: kFmupYellow,
                         inactiveThumbColor: Colors.grey,
                         inactiveTrackColor: Colors.grey[200],
@@ -440,7 +507,7 @@ class _HomePageState extends State<HomePage> {
                         value: inferJson,
                         onChanged: (val) {
                           setState(() => inferJson = val);
-                          if (pdfFile != null || pdfBytes != null) {
+                          if (hasPdf) {
                             processPdf();
                           }
                         },
